@@ -1,4 +1,4 @@
+*.manifest
 __pycache__/
 build/
 dist/
-*.manifest
