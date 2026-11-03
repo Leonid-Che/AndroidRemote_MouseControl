@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Экран (только портретная ориентация):
+    ┌ статус ┐
+    │ тачпад │   ← занимает всё свободное место
+    ├────────┤
+    │ строка кнопок 1: Управление · Wi-Fi · Резерв 1 │
+    │ строка кнопок 2: ЛКМ · ПКМ · Резерв 2          │
+    └────────┘
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg"
+    tools:context=".MainActivity">
+
+    <!-- Статус связи -->
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="10dp"
+        android:textColor="@color/muted"
+        android:textSize="13sp"
+        android:text="@string/st_idle" />
+
+    <!-- Тачпад -->
+    <com.example.touchcursor.TouchPadView
+        android:id="@+id/pad"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginHorizontal="10dp" />
+
+    <!-- Подсказка по кнопкам громкости -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingVertical="6dp"
+        android:textColor="@color/muted"
+        android:textSize="12sp"
+        android:text="@string/vol_hint" />
+
+    <!-- ================= НИЖНЯЯ ПАНЕЛЬ: ДВЕ СТРОКИ ================= -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/panel"
+        android:paddingHorizontal="6dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="10dp">
+
+        <!-- Строка 1 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_control"
+                style="@style/BtnWide"
+                android:text="@string/control_off" />
+
+            <Button
+                android:id="@+id/btn_wifi"
+                style="@style/BtnWide"
+                android:text="@string/wifi_off" />
+
+            <Button
+                android:id="@+id/btn_res1"
+                style="@style/BtnSmall"
+                android:text="@string/res1" />
+        </LinearLayout>
+
+        <!-- Строка 2 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+
+            <Button
+                android:id="@+id/btn_lmb"
+                style="@style/BtnWide"
+                android:text="@string/lmb" />
+
+            <Button
+                android:id="@+id/btn_rmb"
+                style="@style/BtnWide"
+                android:text="@string/rmb" />
+
+            <Button
+                android:id="@+id/btn_res2"
+                style="@style/BtnSmall"
+                android:text="@string/res2" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>
