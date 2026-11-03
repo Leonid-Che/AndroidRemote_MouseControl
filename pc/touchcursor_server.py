@@ -20,15 +20,27 @@ TouchCursor PC Server
     клиент шлёт "TOUCHCURSOR_DISCOVER" → сервер отвечает
     "TOUCHCURSOR_SERVER|<имя компьютера>".
 
-Требования: Python 3.8+, pyautogui (pip install pyautogui).
+Требования: Python 3.8+ и pyautogui — ЛИБО готовый EXE-файл, собранный
+через PyInstaller (см. build_exe.bat / run_exe.bat; Python на ПК не нужен).
+
 Запуск:      python touchcursor_server.py [--port 8721] [--udp-port 8722]
              [--scale 1.5] [--failsafe]
+   или       TouchCursorServer.exe [--port 8721] [--scale 1.5] ...
+
+Конфигурация через файл touchcursor.ini (рядом с EXE/скриптом):
+    [server]
+    port = 8721
+    udp_port = 8722
+    scale = 1.5
+    failsafe = false
+Аргументы командной строки имеют приоритет над ini-файлом.
 
 Безопасность: сервер принимает соединения только из локальной подсети
 (127.0.0.0/8, 10/8, 172.16/12, 192.168/16, 169.254/16).
 """
 
 import argparse
+import configparser
 import ipaddress
 import os
 import socket
@@ -36,12 +48,31 @@ import sys
 import threading
 import time
 
+# --- поддержка «замороженных» сборок (PyInstaller / Nuitka) -----------------
+IS_FROZEN = getattr(sys, "frozen", False)  # собрано в EXE
+
+
+def app_dir() -> str:
+    """Каталог, где лежит скрипт или EXE (для поиска touchcursor.ini)."""
+    if IS_FROZEN:
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 try:
     import pyautogui
 except ImportError:
-    sys.stderr.write(
-        "Не найден модуль pyautogui.\n"
-        "Установите его командой:  pip install pyautogui\n")
+    if IS_FROZEN:
+        # В EXE-сборке pyautogui упакован внутрь — такая ошибка невозможна,
+        # но на всякий случай подсказываем понятное сообщение.
+        sys.stderr.write(
+            "Внутренняя ошибка сборки EXE: не найден pyautogui.\r\n"
+            "Пересоберите сервер через build_exe.bat\r\n")
+    else:
+        sys.stderr.write(
+            "Не найден модуль pyautogui.\n"
+            "Либо установите его:  pip install pyautogui\n"
+            "либо используйте готовый TouchCursorServer.exe (см. build_exe.bat)\n")
     sys.exit(1)
 
 DEFAULT_PORT = 8721
@@ -415,16 +446,70 @@ class TouchCursorServer:
                 pass
 
 
+def load_ini_config() -> dict:
+    """Читает touchcursor.ini (рядом со скриптом/EXE). Неброские ошибки игнорируются."""
+    path = os.path.join(app_dir(), "touchcursor.ini")
+    cfg = {}
+    if not os.path.isfile(path):
+        return cfg
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(path, encoding="utf-8-sig")
+    except Exception as e:
+        log("Не удалось прочитать %s: %s — использую настройки по умолчанию." % (path, e))
+        return cfg
+    sec = "server" if parser.has_section("server") else None
+    if sec is None:
+        return cfg
+
+    def get_num(key, cast):
+        if parser.has_option(sec, key):
+            try:
+                cfg[key] = cast(parser.get(sec, key))
+            except ValueError:
+                log("Неверное значение '%s' в touchcursor.ini — пропущено." % key)
+
+    def get_bool(key):
+        if parser.has_option(sec, key):
+            cfg[key] = parser.getboolean(sec, key)
+
+    get_num("port", int)
+    get_num("udp_port", int)
+    get_num("scale", float)
+    get_bool("failsafe")
+    return cfg
+
+
+def set_console_title(title: str) -> None:
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleTitleW(title)
+    except Exception:
+        pass
+
+
 def main() -> None:
+    ini = load_ini_config()
+
     ap = argparse.ArgumentParser(description="TouchCursor server for Windows 10")
-    ap.add_argument("--port", type=int, default=DEFAULT_PORT, help="TCP-порт (8721)")
-    ap.add_argument("--udp-port", type=int, default=DEFAULT_UDP_PORT,
-                    help="UDP-порт автопоиска (8722)")
-    ap.add_argument("--scale", type=float, default=1.0,
+    ap.add_argument("--port", type=int, default=None, help="TCP-порт (по умолч. 8721)")
+    ap.add_argument("--udp-port", type=int, default=None,
+                    help="UDP-порт автопоиска (по умолч. 8722)")
+    ap.add_argument("--scale", type=float, default=None,
                     help="множитель чувствительности (например 1.5)")
-    ap.add_argument("--failsafe", action="store_true",
-                    help="включить FAIL-SAFE pyautogui: курсор в угол экрана → остановка")
+    ap.add_argument("--failsafe", action="store_true", default=None,
+                    help="включить FAIL-SAFE pyautogui: курсор в угол экрана → стоп")
     args = ap.parse_args()
+
+    # приоритет: аргументы командной строки > touchcursor.ini > умолчания
+    port = args.port if args.port is not None else ini.get("port", DEFAULT_PORT)
+    udp_port = (args.udp_port if args.udp_port is not None
+                else ini.get("udp_port", DEFAULT_UDP_PORT))
+    scale = args.scale if args.scale is not None else ini.get("scale", 1.0)
+    failsafe = (args.failsafe if args.failsafe is not None
+                else ini.get("failsafe", False))
 
     if sys.platform.startswith("win"):
         # стабильнее на высоких DPI
@@ -433,12 +518,21 @@ def main() -> None:
             ctypes.windll.shcore.SetProcessDpiAwareness(2)
         except Exception:
             pass
+        set_console_title("TouchCursor Server — порт TCP %d" % port)
 
-    srv = TouchCursorServer(args.port, args.udp_port, args.scale, args.failsafe)
+    srv = TouchCursorServer(port, udp_port, scale, failsafe)
     try:
         srv.run()
     except KeyboardInterrupt:
         srv.shutdown()
+    finally:
+        if IS_FROZEN:
+            # Двойной клик по EXE: окно консоли не должно исчезать мгновенно,
+            # чтобы пользователь успел увидеть сообщения сервера/ошибок.
+            try:
+                input("\nНажмите Enter, чтобы закрыть окно…")
+            except EOFError:
+                pass
 
 
 if __name__ == "__main__":

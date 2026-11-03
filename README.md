@@ -7,7 +7,8 @@
 
 ```
 android/  — приложение для смартфона (Java, Android Studio)
-pc/       — сервер для компьютера (Python 3 + pyautogui)
+pc/       — сервер для компьютера (Python 3 + pyautogui; собирается в EXE
+            через build_exe.bat — на целевом ПК Python не требуется)
 ```
 
 ## Как это работает
@@ -50,12 +51,15 @@ UDP :8722 — автопоиск: запрос `TOUCHCURSOR_DISCOVER` → отв
 
 ### 1. Компьютер (Windows 10)
 
-1. Установите Python 3.8+ с python.org (обязательно отметьте **Add Python to PATH**).
-2. Скопируйте папку `pc\` на компьютер.
-3. Запустите двойным кликом **`run_server.bat`** — он сам установит `pyautogui`
-   и попробует открыть порты 8721/TCP и 8722/UDP в брандмауэре
-   (если прав администратора нет — разрешите подключение во всплывающем окне
-   брандмауэра или выполните вручную от администратора):
+**Вариант А — готовый EXE, без Python (рекомендуется):**
+
+1. На машине с установленным Python один раз запустите **`build_exe.bat`**
+   (он сам поставит `pyautogui` и `pyinstaller` и соберёт EXE).
+   Результат: папка **`dist\TouchCursorServer\`** со `TouchCursorServer.exe`.
+2. Скопируйте эту папку целиком на любой Windows 10 ПК — Python там не нужен.
+3. Запустите двойным кликом **`TouchCursorServer.exe`** (или `run_exe.bat` —
+   он дополнительно добавит правила брандмауэра от администратора):
+   TCP 8721 и UDP 8722 должны быть разрешены во входящих:
 
    ```bat
    netsh advfirewall firewall add rule name="TouchCursor TCP" dir=in action=allow protocol=TCP localport=8721
@@ -64,8 +68,18 @@ UDP :8722 — автопоиск: запрос `TOUCHCURSOR_DISCOVER` → отв
 
 4. В консоли появится `Сервер запущен. TCP :8721 | UDP :8722 | ...` — ждите телефон.
 
-Полезные ключи: `--scale 1.5` (чувствительность), `--failsafe`
-(курсор в угол экрана = аварийная остановка), `--port`, `--udp-port`.
+> EXE работает в режиме one-dir (быстрый старт, спокойнее для антивирусов).
+> Если SmartScreen/антивирус предупреждает о неизвестном издателе — это нормальная
+> реакция на неподписанные PyInstaller-сборки; добавьте исключение или подпишите
+> сборку сами.
+
+**Вариант Б — из исходников (нужен Python 3.8+):** скопируйте папку `pc\`,
+запустите двойным кликом **`run_server.bat`** — он сам установит `pyautogui`
+и попробует открыть порты в брандмауэре.
+
+**Настройка:** файл `touchcursor.ini` рядом с EXE/скриптом (`port`, `udp_port`,
+`scale`, `failsafe`). Аргументы командной строки (`--port 8721 --scale 1.5
+--failsafe`) имеют приоритет над ini.
 
 ### 2. Смартфон (Android 10+)
 
@@ -95,11 +109,20 @@ UDP :8722 — автопоиск: запрос `TOUCHCURSOR_DISCOVER` → отв
 * `TouchPadView` — тачпад (движение, тап, двойной тап, прокрутка);
 * `WifiDialog`, `Prefs`, `Protocol` — настройка связи, хранение, протокол.
 
-**ПК (`pc/touchcursor_server.py`):**
-* `TouchCursorServer` — TCP-приёмник + UDP-discovery;
-* `ClientSession` — чтение команд одного клиента;
-* `CommandExecutor` — очередь исполнения (дельты движения сливаются, клики не теряются);
-* `MouseController` — вызовы pyautogui + гарантированное отпускание кнопок.
+**ПК:**
+* `pc/touchcursor_server.py` — сервер:
+  * `TouchCursorServer` — TCP-приёмник + UDP-discovery;
+  * `ClientSession` — чтение команд одного клиента;
+  * `CommandExecutor` — очередь исполнения (дельты движения сливаются, клики не теряются);
+  * `MouseController` — вызовы pyautogui + гарантированное отпускание кнопок;
+  * `load_ini_config()` — настройки из `touchcursor.ini` (рядом со скриптом/EXE);
+  * поддержка PyInstaller (`sys.frozen`): корректный поиск ini и «не закрывающееся»
+    окно при ошибке запуска EXE двойным кликом.
+* `pc/touchcursor_server.spec` — конфигурация сборки PyInstaller (one-dir, консоль);
+* `pc/build_exe.bat` — сборка `dist\TouchCursorServer\TouchCursorServer.exe`;
+* `pc/run_exe.bat` — запуск собранного EXE + правила брандмауэра (без Python);
+* `pc/run_server.bat` — запуск из исходников через Python;
+* `pc/touchcursor.ini` — пример конфигурации.
 
 ## Известные ограничения / идеи для резервных кнопок
 
