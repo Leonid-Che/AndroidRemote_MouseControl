@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TouchCursor</string>
+
+    <!-- Тачпад -->
+    <string name="pad_hint">Палец — курсор · 2 пальца — колесо · тап — ЛКМ · двойной тап — двойной клик</string>
+    <string name="vol_hint">Громкость+ : клик / двойной клик / удержание = ЛКМ\nГромкость− : клик / удержание = ПКМ</string>
+
+    <!-- Кнопки внизу (две строки) -->
+    <string name="control_off">Управление: ВЫКЛ</string>
+    <string name="control_on">Управление: ВКЛ</string>
+    <string name="wifi_off">Wi-Fi: отключён</string>
+    <string name="wifi_on">Wi-Fi: подключено</string>
+    <string name="lmb">ЛКМ</string>
+    <string name="rmb">ПКМ</string>
+    <string name="res1">Резерв 1</string>
+    <string name="res2">Резерв 2</string>
+
+    <!-- Статус -->
+    <string name="st_idle">Готово. Нажмите Wi-Fi, чтобы указать компьютер.</string>
+    <string name="st_connecting">Подключение…</string>
+    <string name="st_connected">Связь: %1$s:%2$d</string>
+    <string name="st_disconnected">Нет связи: %1$s</string>
+    <string name="st_control_no_link">Управление включено, но связь с ПК потеряна…</string>
+
+    <!-- Предупреждения -->
+    <string name="warn_no_host">Сначала укажите адрес компьютера (кнопка Wi-Fi)</string>
+    <string name="warn_control_off">Сначала включите управление кнопкой «Управление»</string>
+    <string name="warn_no_link">Нет связи с компьютером</string>
+    <string name="reserved_toast">Кнопка «Резерв %1$d» зарезервирована на будущее</string>
+
+    <!-- Диалог Wi-Fi -->
+    <string name="wifi_dialog_title">Связь по Wi-Fi</string>
+    <string name="wifi_ip_hint">IP компьютера, напр. 192.168.1.10</string>
+    <string name="wifi_status_on">Подключено к %1$s</string>
+    <string name="wifi_status_off">Не подключено</string>
+    <string name="sensitivity">Чувствительность курсора</string>
+    <string name="sens_value">%1$.2f×</string>
+    <string name="connect">Подключить</string>
+    <string name="disconnect">Отключиться</string>
+    <string name="cancel">Отмена</string>
+    <string name="find_pc">Найти ПК</string>
+    <string name="searching">Поиск компьютера в сети…</string>
+    <string name="no_pc_found">Компьютер не найден. Запустите pc/touchcursor_server.py и повторите.</string>
+    <string name="found_one">Найден: %1$s</string>
+    <string name="pick_pc">Выберите компьютер</string>
+    <string name="wifi_help">1. На компьютере запустите touchcursor_server.py (нужен Python 3 + pyautogui).\n2. Разрешите порту 8721 в брандмауэре Windows.\n3. Телефон и ПК должны быть в одной Wi-Fi сети.\n4. Нажмите «Найти ПК» или впишите IP вручную.</string>
+
+    <!-- Уведомление сервиса -->
+    <string name="notif_channel">Управление курсором</string>
+    <string name="notif_channel_desc">Сервис держит связь с компьютером и перехватывает кнопки громкости</string>
+    <string name="notif_title">Курсор активен</string>
+    <string name="notif_connected">Связь с %1$s · Громкость+ = ЛКМ, Громкость− = ПКМ</string>
+    <string name="notif_no_host">Адрес компьютера не задан</string>
+    <string name="notif_action_off">Выключить</string>
+</resources>
