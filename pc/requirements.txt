@@ -1,0 +1,7 @@
+# Зависимости сервера TouchCursor (нужны ТОЛЬКО для запуска из .py и для
+# сборки EXE через build_exe.bat). Конечному пользователю с готовым
+# TouchCursorServer.exe эти пакеты не нужны.
+pyautogui>=0.9.54
+
+# Для сборки EXE (устанавливается автоматически скриптом build_exe.bat):
+#   pip install pyinstaller
