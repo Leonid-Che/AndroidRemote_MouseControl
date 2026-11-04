@@ -85,7 +85,17 @@ UDP :8722 — автопоиск: запрос `TOUCHCURSOR_DISCOVER` → отв
 
 1. Откройте папку `android/` в Android Studio, соберите APK
    (`Build → Build Bundle(s)/APK(s) → Build APK(s)`) и установите на телефон,
-   либо соберите из командной строки: `./gradlew assembleDebug`.
+   либо соберите из командной строки (нужен JDK 17 и Android SDK):
+   ```
+   cd android
+   gradlew.bat assembleDebug      # Windows
+   ./gradlew assembleDebug        # Linux/macOS
+   ```
+   Готовый APK: `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+   > В проекте есть `gradle.properties` с `android.useAndroidX=true` — без этого
+   > файла сборка падает с ошибкой `checkDebugAarMetadata` (проект использует
+   > библиотеки AndroidX: appcompat, material, constraintlayout).
 2. Телефон и компьютер должны быть в **одной Wi-Fi сети**.
 3. Нажмите **Wi-Fi** → **Найти компьютер** (или введите IP вручную) → подключитесь.
 4. Нажмите **УПРАВЛЕНИЕ (ВКЛ)** — можно работать. При первом включении
