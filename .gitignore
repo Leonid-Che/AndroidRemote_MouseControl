@@ -1,4 +1,1 @@
-*.manifest
-__pycache__/
-build/
-dist/
+*.zip
