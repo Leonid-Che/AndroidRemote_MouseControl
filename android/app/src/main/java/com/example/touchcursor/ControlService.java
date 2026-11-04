@@ -111,7 +111,9 @@ public class ControlService extends Service {
         if (audio == null) return;
         try {
             if (on) {
-                audio.requestAudioFocus(f -> AudioManager.AUDIOFOCUS_REQUEST_GRANTED,
+                // OnAudioFocusChangeListener — это void-функциональный интерфейс,
+                // поэтому лямбда обязана быть block-body (statement expression не подходит).
+                audio.requestAudioFocus(f -> { /* состояние фокуса нам не нужно обрабатывать */ },
                         AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE);
                 listening = true;
             } else {
@@ -224,7 +226,8 @@ public class ControlService extends Service {
         PendingIntent pioff = PendingIntent.getActivity(this, 1, off,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        String host = prefs.getString(Prefs.HOST, "");
+        String host = Transport.savedTarget(this);
+        if (host.isEmpty()) host = prefs.getString(Prefs.HOST, "");
         String text = host.isEmpty()
                 ? getString(R.string.notif_no_host)
                 : getString(R.string.notif_connected, host);

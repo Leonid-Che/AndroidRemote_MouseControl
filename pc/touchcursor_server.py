@@ -40,6 +40,7 @@ TouchCursor PC Server
 """
 
 import argparse
+import collections
 import configparser
 import ipaddress
 import os
@@ -287,8 +288,11 @@ class ClientSession(threading.Thread):
         self.executor = executor
         self.alive = True
 
+    def peer_name(self) -> str:
+        return "%s:%d" % self.addr
+
     def run(self) -> None:
-        log("клиент подключён: %s:%d" % self.addr)
+        log("клиент подключён: %s" % self.peer_name())
         buf = b""
         try:
             self.sock.settimeout(30.0)
@@ -307,7 +311,7 @@ class ClientSession(threading.Thread):
             pass
         finally:
             self.close()
-            log("клиент отключился: %s" % self.addr[0])
+            log("клиент отключился: %s" % self.peer_name().split(":")[0])
 
     def _handle(self, line: str) -> None:
         if not line:
@@ -333,6 +337,211 @@ class ClientSession(threading.Thread):
             pass
         # если оборвалась связь — обязательно отжать все кнопки
         self.executor.submit(("RESET",))
+
+
+class BtSession(ClientSession):
+    """Сессия поверх Bluetooth RFCOMM-сокета (протокол сообщений — тот же)."""
+
+    def __init__(self, sock, peer_desc: str, executor: CommandExecutor):
+        super().__init__(_BtCompatSocket(sock), ("bluetooth", 0), executor)
+        self.addr = ("bluetooth", 0)
+        self.bt_raw = sock
+        self.peer_desc = peer_desc
+
+    def peer_name(self) -> str:
+        return "Bluetooth (%s)" % self.peer_desc
+
+    def close(self) -> None:
+        # прерываем блокирующий read в потоке сессии (см. _BtCompatSocket.recv)
+        try:
+            self.bt_raw.shutdown(getattr(socket, "SHUT_RDWR", 2))
+        except OSError:
+            pass
+        ClientSession.close(self)
+
+
+class _BtCompatSocket:
+    """Обёртка BluetoothSocket под «сокето-подобный» интерфейс recv/sendall/close.
+
+    Особенности Bluetooth-сокета Windows (pybluez):
+      * makefile() может возвращать НЕЗАВИСИМЫЕ потоки чтения и записи —
+        поэтому пишем напрямую в сокет (sock.send), а не в поток;
+      * сокеты Windows не умеют неблокирующий режим / таймауты, а read()
+        блокирует до прихода данных. Чтобы сессию можно было корректно
+        закрыть (обрыв связи, остановка сервера), читает отдельный фоновый
+        поток-«почтальон»: он кладёт байты в deque, а recv() ждёт их
+        с таймаутом и выдаёт не дожидаясь полного буфера.
+    """
+
+    def __init__(self, sock):
+        self.sock = sock
+        self._r = None
+        self._closed = False
+        self._q = collections.deque()
+        self._lock = threading.Lock()
+        self._data = threading.Condition(self._lock)
+        self._reader = threading.Thread(target=self._read_loop,
+                                        daemon=True, name="bt-read")
+        self._reader.start()
+
+    def _streams(self):
+        if self._r is None:
+            self._r = self.sock.makefile("rb")
+        return self._r
+
+    def _read_loop(self):
+        """Фоновый поток: блокирующий read -> очередь, без зависаний recv()."""
+        try:
+            r = self._streams()
+            while not self._closed:
+                b = r.read(1)
+                if not b:
+                    break
+                with self._lock:
+                    self._q.append(b[0])      # храним int-байты (deque of ints)
+                    self._data.notify_all()   # держим lock при notify — без гонки
+        except Exception:
+            pass
+        finally:
+            with self._lock:
+                self._closed = True
+                self._data.notify_all()       # разбудить ожидающих
+
+    def settimeout(self, t):
+        # настоящий таймаут у BT-сокета недоступен — эмулируется в recv()
+        self._timeout = t
+
+    def recv(self, n):
+        # Первый байт ждём до таймаута (закрытие сессии/обрыв), дальше —
+        # собираем всё, что уже пришло, не дожидаясь полного буфера.
+        timeout = getattr(self, "_timeout", None) or 5.0
+        out = bytearray()
+        deadline = time.monotonic() + timeout
+        while len(out) < n:
+            with self._lock:
+                if self._q:
+                    take = min(n - len(out), len(self._q))
+                    for _ in range(take):
+                        out.append(self._q.popleft())
+                    continue
+                if self._closed:
+                    break
+                remain = deadline - time.monotonic() if not out else 0.0
+                if remain <= 0 or not self._data.wait(remain):
+                    break
+        return bytes(out)
+
+    def sendall(self, data):
+        # пишем в сам сокет: на Windows makefile('wb') может не работать
+        mv = memoryview(data)
+        while mv:
+            sent = self.sock.send(mv)
+            if not sent:
+                raise OSError("bluetooth socket closed on send")
+            mv = mv[sent:]
+
+    def close(self):
+        with self._lock:
+            self._closed = True
+            self._data.notify_all()
+        try:
+            if self._r: self._r.close()
+        except OSError:
+            pass
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+BT_DEFAULT_CHANNEL = 22  # RFCOMM-канал по умолчанию (SPP-подобный сервис)
+
+
+def load_bluetooth():
+    """Импортирует pybluez (Bluetooth RFCOMM). Возвращает модуль или None.
+
+    Если библиотека не установлена — Bluetooth-режим просто отключается,
+    Wi-Fi работает как раньше. Установка:  pip install pybluez
+    (для EXE-сборки pybluez упакован через build_exe.bat / .spec).
+    """
+    try:
+        import bluetooth  # pybluez
+        return bluetooth
+    except Exception:
+        return None
+
+
+class BluetoothListener(threading.Thread):
+    """RFCOMM-сервер Windows: ждёт входящие соединения от смартфона Android.
+
+    Протокол сообщений поверх канала — идентичен TCP (см. ClientSession),
+    поэтому клиент переключается между Wi-Fi и Bluetooth без изменений.
+    """
+
+    def __init__(self, channel: int, executor: CommandExecutor,
+                 sessions: "list[ClientSession]", sessions_lock):
+        super().__init__(daemon=True, name="bt-listener")
+        self.channel = channel
+        self.executor = executor
+        self.sessions = sessions
+        self.lock = sessions_lock
+        self.alive = True
+        self.sock = None
+        self.bt = load_bluetooth()
+
+    @staticmethod
+    def _peer_desc(sock) -> str:
+        try:
+            addr = sock.getpeername()
+            if isinstance(addr, tuple):
+                return "%s ch=%d" % (addr[0], addr[1] if len(addr) > 1 else 0)
+            return str(addr)
+        except OSError:
+            return "неизвестное устройство"
+
+    def run(self) -> None:
+        bt = self.bt
+        if bt is None:
+            log("Bluetooth недоступен: библиотека pybluez не установлена "
+                "(pip install pybluez). Работает только Wi-Fi.")
+            return
+        if self.channel <= 0:
+            log("Bluetooth-слушатель отключён (bt_channel = 0)")
+            return
+        try:
+            s = bt.BluetoothSocket(bt.RFCOMM)
+            s.bind(("", self.channel))
+            s.listen(1)
+            self.sock = s
+        except Exception as e:
+            log("Не удалось открыть Bluetooth-канал %d: %s" % (self.channel, e))
+            log("Проверьте: адаптер включён, ПК виден телефону, "
+                "или укажите свободный канал --bt-channel N")
+            return
+        log("Bluetooth-слушатель запущен (RFCOMM-канал %d)" % self.channel)
+        while self.alive:
+            try:
+                conn, _ = s.accept()
+            except OSError:
+                break
+            peer = self._peer_desc(conn)
+            desc = "Bluetooth-клиент подключён: %s" % peer
+            with self.lock:
+                for old in list(self.sessions):
+                    old.close()
+                    self.sessions.remove(old)
+                sess = BtSession(conn, peer, self.executor)
+                self.sessions.append(sess)
+            sess.start()
+        log("Bluetooth-слушатель остановлен")
+
+    def stop(self) -> None:
+        self.alive = False
+        if self.sock:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
 
 
 class DiscoveryServer(threading.Thread):
@@ -378,9 +587,17 @@ class DiscoveryServer(threading.Thread):
 
 
 class TouchCursorServer:
-    def __init__(self, port: int, udp_port: int, scale: float, failsafe: bool):
+    def __init__(self, port: int, udp_port: int, scale: float, failsafe: bool,
+                 bt_channel: int = BT_DEFAULT_CHANNEL, transport: str = "all"):
         self.port = port
         self.scale = scale
+        # transport: "wifi" | "bt" | "all" — что слушать (см. touchcursor.ini)
+        self.transport = (transport or "all").strip().lower()
+        if self.transport not in ("wifi", "bt", "bluetooth", "all"):
+            self.transport = "all"
+        self.bt_enabled = self.transport in ("bt", "bluetooth", "all")
+        self.wifi_enabled = self.transport in ("wifi", "all")
+        self.bt_channel = bt_channel if self.bt_enabled else 0
         pyautogui.FAILSAFE = failsafe
         pyautogui.PAUSE = 0
         try:
@@ -391,26 +608,42 @@ class TouchCursorServer:
         self.executor = CommandExecutor(self.mouse)
         self.discovery = DiscoveryServer(udp_port)
         self.sessions: "list[ClientSession]" = []
+        self.sessions_lock = threading.Lock()
+        self.bt_listener = BluetoothListener(
+            self.bt_channel, self.executor, self.sessions, self.sessions_lock)
         self.tcp = None
         self.alive = True
 
     def run(self) -> None:
         self.executor.start()
-        self.discovery.start()
+        if self.wifi_enabled:
+            self.discovery.start()
+        if self.bt_enabled:
+            self.bt_listener.start()
 
-        self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            self.tcp.bind(("0.0.0.0", self.port))
-        except OSError as e:
-            log("Не удалось занять TCP-порт %d: %s" % (self.port, e))
-            sys.exit(1)
-        self.tcp.listen(4)
+        if self.wifi_enabled:
+            self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                self.tcp.bind(("0.0.0.0", self.port))
+            except OSError as e:
+                log("Не удалось занять TCP-порт %d: %s" % (self.port, e))
+                sys.exit(1)
+            self.tcp.listen(4)
         w, h = pyautogui.size()
-        log("Сервер запущен. TCP :%d | UDP :%d | экран %dx%d | масштаб %.2f"
-            % (self.port, self.discovery.udp_port, w, h, self.scale))
-        log("Управление курсором доступно со смартфона в той же Wi-Fi сети.")
+        mode = {"wifi": "Wi-Fi", "bt": "Bluetooth", "bluetooth": "Bluetooth",
+                "all": "Wi-Fi + Bluetooth"}[self.transport]
+        log("Сервер запущен (%s). TCP :%d | UDP :%d | Bluetooth канал %d | экран %dx%d | масштаб %.2f"
+            % (mode, self.port, self.discovery.udp_port, self.bt_channel, w, h, self.scale))
+        log("Подключение со смартфона: Wi-Fi (та же сеть) или Bluetooth (сопряжение).")
         log("Ctrl+C — остановка сервера.")
+
+        if not self.wifi_enabled:
+            # Bluetooth-only режим: ждём соединения только по RFCOMM
+            while self.alive:
+                time.sleep(0.5)
+            self.shutdown()
+            return
 
         try:
             while self.alive:
@@ -420,11 +653,12 @@ class TouchCursorServer:
                     conn.close()
                     continue
                 # новый клиент вытесняет предыдущих (один телефон = одно управление)
-                for s in list(self.sessions):
-                    s.close()
-                    self.sessions.remove(s)
-                sess = ClientSession(conn, addr, self.executor)
-                self.sessions.append(sess)
+                with self.sessions_lock:
+                    for s in list(self.sessions):
+                        s.close()
+                        self.sessions.remove(s)
+                    sess = ClientSession(conn, addr, self.executor)
+                    self.sessions.append(sess)
                 sess.start()
         except OSError:
             pass
@@ -434,9 +668,11 @@ class TouchCursorServer:
     def shutdown(self) -> None:
         log("Остановка сервера…")
         self.alive = False
-        for s in self.sessions:
-            s.close()
+        with self.sessions_lock:
+            for s in self.sessions:
+                s.close()
         self.discovery.stop()
+        self.bt_listener.stop()
         self.executor.stop()
         self.mouse.release_all()
         if self.tcp:
@@ -477,6 +713,7 @@ def load_ini_config() -> dict:
     get_num("udp_port", int)
     get_num("scale", float)
     get_bool("failsafe")
+    get_num("bt_channel", int)
     return cfg
 
 
@@ -501,6 +738,8 @@ def main() -> None:
                     help="множитель чувствительности (например 1.5)")
     ap.add_argument("--failsafe", action="store_true", default=None,
                     help="включить FAIL-SAFE pyautogui: курсор в угол экрана → стоп")
+    ap.add_argument("--bt-channel", type=int, default=None,
+                    help="RFCOMM-канал Bluetooth (по умолч. 22; 0 — выключить Bluetooth)")
     args = ap.parse_args()
 
     # приоритет: аргументы командной строки > touchcursor.ini > умолчания
@@ -510,6 +749,8 @@ def main() -> None:
     scale = args.scale if args.scale is not None else ini.get("scale", 1.0)
     failsafe = (args.failsafe if args.failsafe is not None
                 else ini.get("failsafe", False))
+    bt_channel = (args.bt_channel if args.bt_channel is not None
+                  else ini.get("bt_channel", BT_DEFAULT_CHANNEL))
 
     if sys.platform.startswith("win"):
         # стабильнее на высоких DPI
@@ -520,7 +761,7 @@ def main() -> None:
             pass
         set_console_title("TouchCursor Server — порт TCP %d" % port)
 
-    srv = TouchCursorServer(port, udp_port, scale, failsafe)
+    srv = TouchCursorServer(port, udp_port, scale, failsafe, bt_channel)
     try:
         srv.run()
     except KeyboardInterrupt:
