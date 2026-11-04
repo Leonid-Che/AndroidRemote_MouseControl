@@ -111,7 +111,9 @@ public class ControlService extends Service {
         if (audio == null) return;
         try {
             if (on) {
-                audio.requestAudioFocus(f -> AudioManager.AUDIOFOCUS_REQUEST_GRANTED,
+                // OnAudioFocusChangeListener — это void-функциональный интерфейс,
+                // поэтому лямбда обязана быть block-body (statement expression не подходит).
+                audio.requestAudioFocus(f -> { /* состояние фокуса нам не нужно обрабатывать */ },
                         AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE);
                 listening = true;
             } else {
