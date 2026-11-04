@@ -174,7 +174,7 @@ public class TouchPadView extends View {
         hint.setColor(Color.parseColor("#5A6472"));
         hint.setTextSize(30f);
         hint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText(getString(R.string.pad_hint), w / 2f, h - 24f, hint);
+        canvas.drawText(getContext().getString(R.string.pad_hint), w / 2f, h - 24f, hint);
     }
 
     public void setListener(PadListener l) { this.listener = l; }

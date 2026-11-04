@@ -27,6 +27,7 @@
     <string name="warn_no_host">Сначала укажите адрес компьютера (кнопка Wi-Fi)</string>
     <string name="warn_control_off">Сначала включите управление кнопкой «Управление»</string>
     <string name="warn_no_link">Нет связи с компьютером</string>
+    <string name="toast_connected">Подключено к %1$s</string>
     <string name="reserved_toast">Кнопка «Резерв %1$d» зарезервирована на будущее</string>
 
     <!-- Диалог Wi-Fi -->
