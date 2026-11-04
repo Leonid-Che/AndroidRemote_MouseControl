@@ -21,28 +21,35 @@ public class MouseButtonMachine {
         void releaseUp();     // конец удержания
     }
 
-    private final Sink sink;
+    // Не final и без инициализации в инициализаторах полей: к этому времени
+    // конструктор ещё не назначил sink, и лямбды-инициализаторы захватывали бы
+    // неинициализированное поле. Инициализация Runnable'ов — в конце конструктора.
+    private Sink sink;
 
     private boolean pressed = false;    // физически удерживается
     private boolean holding = false;    // перешагнули порог удержания, мы уже послали DOWN
     private long downAt = 0L;
     private boolean pendingSingle = false;  // тап отпущен, ждём возможный второй
 
-    private final Runnable holdCheck = () -> {
-        if (pressed && !holding) {
-            holding = true;
-            sink.pressDown();
-        }
-    };
+    private Runnable holdCheck;
 
-    private final Runnable singleTimeout = () -> {
-        if (pendingSingle) {
-            pendingSingle = false;
-            sink.singleClick();
-        }
-    };
+    private Runnable singleTimeout;
 
-    public MouseButtonMachine(Sink sink) { this.sink = sink; }
+    public MouseButtonMachine(Sink sink) {
+        this.sink = sink;
+        holdCheck = () -> {
+            if (pressed && !holding) {
+                holding = true;
+                this.sink.pressDown();
+            }
+        };
+        singleTimeout = () -> {
+            if (pendingSingle) {
+                pendingSingle = false;
+                this.sink.singleClick();
+            }
+        };
+    }
 
     /** @param repeat true — системная автоповторная генерация ACTION_DOWN при долгом удержании. */
     public void onDown(boolean repeat) {
